@@ -22,6 +22,18 @@ public class FirstPersonController : MonoBehaviour
     private float cooldownTimer;
     private bool isSprinting;
     private bool canSprint = true;
+    private Vector3 currentMoveVelocity;
+    private Vector3 moveVelocitySmoothDamp;
+    public float acceleration = 14f;
+    public float deceleration = 18f;
+    [Range(0f, 1f)]
+    public float airControl = 0.5f;
+    private bool isOnFloor;
+    private bool wasGroundedLastFrame;
+    // Jump buffering and variable jump height
+    private float jumpBufferTime = 0.15f;
+    private float jumpBufferCounter;
+    public float lowJumpMultiplier = 2f;
 
     void Start()
     {
@@ -53,16 +65,35 @@ public class FirstPersonController : MonoBehaviour
 
     void HandleMovement()
     {
-        float moveX = Input.GetAxis("Horizontal");
-        float moveZ = Input.GetAxis("Vertical");
+        CheckIfOnFloor();
+        float moveX = Input.GetAxisRaw("Horizontal");
+        float moveZ = Input.GetAxisRaw("Vertical");
 
-        float currentSpeed = isSprinting ? sprintSpeed : walkSpeed;
+        Vector3 inputDir = (transform.right * moveX + transform.forward * moveZ).normalized;
+        float targetSpeed = (isSprinting ? sprintSpeed : walkSpeed) * inputDir.magnitude;
 
-        Vector3 move = transform.right * moveX + transform.forward * moveZ;
-        controller.Move(move * currentSpeed * Time.deltaTime);
+        // Smooth acceleration/deceleration
+        float smoothTime = controller.isGrounded
+            ? (inputDir.magnitude > 0 ? 1f / acceleration : 1f / deceleration)
+            : (1f / acceleration) / Mathf.Lerp(1f, 1f / airControl, 1f - airControl);
 
-        // --- Gravity & Jumping ---
-        if (controller.isGrounded)
+        Vector3 targetHorizontalVelocity = inputDir * targetSpeed;
+        Vector3 horizontalVelocity = new Vector3(velocity.x, 0, velocity.z);
+        horizontalVelocity = Vector3.SmoothDamp(
+            horizontalVelocity,
+            targetHorizontalVelocity,
+            ref moveVelocitySmoothDamp,
+            smoothTime
+        );
+
+        // --- Jump Buffering ---
+        if (Input.GetButtonDown("Jump"))
+            jumpBufferCounter = jumpBufferTime;
+        else
+            jumpBufferCounter -= Time.deltaTime;
+
+        // --- Coyote Time ---
+        if ((controller.isGrounded && isOnFloor))
         {
             coyoteTimeCounter = coyoteTime;
             if (velocity.y < 0)
@@ -73,15 +104,26 @@ public class FirstPersonController : MonoBehaviour
             coyoteTimeCounter -= Time.deltaTime;
         }
 
-        // Allow jump if within coyote time
-        if (coyoteTimeCounter > 0f && Input.GetButtonDown("Jump"))
+        // --- Jumping ---
+        if (coyoteTimeCounter > 0f && jumpBufferCounter > 0f)
         {
             velocity.y = Mathf.Sqrt(jumpHeight * -2f * gravity);
-            coyoteTimeCounter = 0f; // Prevent double jump
+            coyoteTimeCounter = 0f;
+            jumpBufferCounter = 0f;
         }
 
+        // --- Variable Jump Height ---
         velocity.y += gravity * Time.deltaTime;
-        controller.Move(velocity * Time.deltaTime); // <-- This line is essential!
+        if (velocity.y > 0 && !Input.GetButton("Jump"))
+            velocity.y += gravity * (lowJumpMultiplier - 1) * Time.deltaTime;
+
+        // Combine horizontal and vertical velocity
+        velocity.x = horizontalVelocity.x;
+        velocity.z = horizontalVelocity.z;
+
+        controller.Move(velocity * Time.deltaTime);
+
+        wasGroundedLastFrame = controller.isGrounded && isOnFloor;
     }
 
     void HandleSprint()
@@ -110,6 +152,22 @@ public class FirstPersonController : MonoBehaviour
             {
                 canSprint = true;
                 sprintTimer = 0f;
+            }
+        }
+    }
+
+    void CheckIfOnFloor()
+    {
+        isOnFloor = false;
+        RaycastHit hit;
+        float sphereRadius = controller.radius * 0.95f;
+        float rayLength = controller.height / 2f + 0.3f;
+        Vector3 rayOrigin = transform.position + Vector3.up * 0.1f;
+        if (Physics.SphereCast(rayOrigin, sphereRadius, Vector3.down, out hit, rayLength))
+        {
+            if (hit.collider.CompareTag("floor"))
+            {
+                isOnFloor = true;
             }
         }
     }
