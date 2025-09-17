@@ -120,6 +120,7 @@ public class GameManager : MonoBehaviour
     {
         if (!itemFound[currentSceneIndex])
         {
+            ShowMessage("This door is locked.", 2f);
             Debug.Log("You must find the item before exiting!");
             return;
         }
