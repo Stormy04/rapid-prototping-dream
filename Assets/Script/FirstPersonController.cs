@@ -34,7 +34,8 @@ public class FirstPersonController : MonoBehaviour
     private float jumpBufferTime = 0.15f;
     private float jumpBufferCounter;
     public float lowJumpMultiplier = 2f;
-
+    public bool IsSprinting() => isSprinting;
+    public Vector3 GetVelocity() => velocity;
     void Start()
     {
         controller = GetComponent<CharacterController>();
